@@ -2,7 +2,7 @@
  * Core MDSS framebuffer driver.
  *
  * Copyright (C) 2007 Google Incorporated
- * Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2008-2019, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -2149,6 +2149,7 @@ void set_touchscreen_fw_upgrade_flag(uint8_t flag)
 {
 	tp_fw_upgrade_flag = flag;
 	pr_info("tp dbg: set_touchscreen_fw_upgrade_flag, tp_fw_upgrade_flag=%d\n", tp_fw_upgrade_flag);
+
 }
 
 static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
@@ -2203,10 +2204,13 @@ static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 	mfd->panel_power_state = req_power_state;
 
 	ret = mfd->mdp.off_fnc(mfd);
-	if (ret)
+	if (ret) {
 		mfd->panel_power_state = cur_power_state;
-	else if (mdss_panel_is_power_off(req_power_state))
+	} else if (!mdss_panel_is_power_on_interactive(req_power_state)) {
 		mdss_fb_release_fences(mfd);
+		if (mfd->panel.type == MIPI_CMD_PANEL)
+			mdss_fb_signal_retire_fence(mfd);
+	}
 	mfd->op_enable = true;
 	complete(&mfd->power_off_comp);
 
@@ -4055,9 +4059,8 @@ skip_commit:
 	if (IS_ERR_VALUE(ret) || !sync_pt_data->flushed) {
 		mdss_fb_release_kickoff(mfd);
 		mdss_fb_signal_timeline(sync_pt_data);
-		if ((mfd->panel.type == MIPI_CMD_PANEL) &&
-			(mfd->mdp.signal_retire_fence))
-			mfd->mdp.signal_retire_fence(mfd, 1);
+		if (mfd->panel.type == MIPI_CMD_PANEL)
+			mdss_fb_signal_retire_fence(mfd);
 	}
 
 	if (dynamic_dsi_switch) {
