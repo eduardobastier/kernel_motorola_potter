@@ -56,10 +56,6 @@
 #include "mdss_mdp.h"
 #include "mdp3_ctrl.h"
 
-#ifdef CONFIG_KLAPSE
-#include "klapse.h"
-#endif
-
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MDSS_FB_NUM 3
 #else
@@ -105,12 +101,6 @@ static ssize_t _name##_store(struct device *dev, \
 	ret = mdss_fb_set_param(dev, _id, buf); \
 	return ret ? ret : count; \
 }
-
-#define MDSS_BRIGHT_TO_BL_DIM(out, v) do {\
-			out = (12*v*v+1393*v+3060)/4465;\
-			} while (0)
-bool backlight_dimmer = false;
-module_param(backlight_dimmer, bool, 0755);
 
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
@@ -319,14 +309,10 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (value > mfd->panel_info->brightness_max)
 		value = mfd->panel_info->brightness_max;
 
-	if (backlight_dimmer) {
-		MDSS_BRIGHT_TO_BL_DIM(bl_lvl, value);
-	} else {
-		/* This maps android backlight level 0 to 255 into
-		   driver backlight level 0 to bl_max with rounding */
-		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
-					mfd->panel_info->brightness_max);
-	}
+	/* This maps android backlight level 0 to 255 into
+	   driver backlight level 0 to bl_max with rounding */
+	MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+				mfd->panel_info->brightness_max);
 
 	if (!bl_lvl && value)
 		bl_lvl = 1;
@@ -337,9 +323,6 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 		mdss_fb_set_backlight(mfd, bl_lvl);
 		mutex_unlock(&mfd->bl_lock);
 	}
-#ifdef CONFIG_KLAPSE
-	set_rgb_slider(bl_lvl);
-#endif
 }
 
 static struct led_classdev backlight_led = {
@@ -2144,12 +2127,25 @@ static void mdss_panel_validate_debugfs_info(struct msm_fb_data_type *mfd)
 	}
 }
 
+static void mdss_fb_signal_retire_fence(struct msm_fb_data_type *mfd)
+{
+#ifdef TARGET_HW_MDSS_MDP3
+	struct mdp3_session_data *mdp3_session = mfd_to_mdp3_data(mfd);
+	int retire_cnt = mdp3_session->retire_cnt;
+#else
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
+	int retire_cnt = mdp5_data->retire_cnt;
+#endif
+
+	if (mfd->mdp.signal_retire_fence)
+		mfd->mdp.signal_retire_fence(mfd, retire_cnt);
+}
+
 static int tp_fw_upgrade_flag;
 void set_touchscreen_fw_upgrade_flag(uint8_t flag)
 {
 	tp_fw_upgrade_flag = flag;
 	pr_info("tp dbg: set_touchscreen_fw_upgrade_flag, tp_fw_upgrade_flag=%d\n", tp_fw_upgrade_flag);
-
 }
 
 static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
